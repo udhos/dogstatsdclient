@@ -19,7 +19,7 @@ type Options struct {
 	// Port defaults to env var DD_AGENT_PORT. Undefined DD_AGENT_PORT defaults to 8125.
 	Port string
 
-	// Namespace defaults to groupcache.
+	// Namespace sets the namespace.
 	Namespace string
 
 	// Service is used to define default Tags. If undefined, defaults to DD_SERVICE.
