@@ -28,6 +28,12 @@ type Options struct {
 	// Tags defaults to env var DD_TAGS.
 	Tags []string
 
+	// TagHostnameKey defaults to "pod_name".
+	TagHostnameKey string
+
+	// DisableTagHostnameKey prevents adding tag $TagHostnameKey:$hosname.
+	DisableTagHostnameKey bool
+
 	Debug bool
 }
 
@@ -52,9 +58,22 @@ func New(options Options) (*statsd.Client, error) {
 		options.Tags = strings.Fields(envString("DD_TAGS", ""))
 	}
 
+	if !options.DisableTagHostnameKey {
+		if options.TagHostnameKey == "" {
+			options.TagHostnameKey = "pod_name"
+		}
+		hostname, err := os.Hostname()
+		if err != nil {
+			return nil, err
+		}
+		// add tag pod_name:hostname
+		options.Tags = append(options.Tags, fmt.Sprintf("%s:%s", options.TagHostnameKey, hostname))
+	}
+
 	// add service to tags
 	options.Tags = append(options.Tags, fmt.Sprintf("service:%s", options.Service))
 
+	// compact tags
 	slices.Sort(options.Tags)
 	options.Tags = slices.Compact(options.Tags)
 
