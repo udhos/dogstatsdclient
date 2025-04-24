@@ -7,6 +7,8 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/DataDog/datadog-go/v5/statsd"
 )
@@ -34,13 +36,123 @@ type Options struct {
 	// DisableTagHostnameKey prevents adding tag $TagHostnameKey:$hosname.
 	DisableTagHostnameKey bool
 
+	// Debug enables debugging logs.
 	Debug bool
+
+	// TTL defines maximum lifetime for internal Dogstatsd client created by method New.
+	// Method NewUnsafe ignores TTL.
+	// The internal client is renewed every TTL period in order to withstand DNS changes.
+	// If unspecified, defaults to 1 minute.
+	TTL time.Duration
 }
 
-// New creates datadog client.
-func New(options Options) (*statsd.Client, error) {
+// Client holds Dogstatsd client.
+// Client implements the interface DogstatsdClient.
+type Client struct {
+	options        Options
+	client         *statsd.Client
+	clientCreation time.Time
+	lock           sync.Mutex
+}
 
+const defaultTTL = time.Minute
+
+// New creates Dogstatsd client.
+func New(options Options) (*Client, error) {
 	const me = "dogstatsdclient.New"
+	if options.TTL < 1 {
+		if options.Debug {
+			slog.Info(me,
+				"newTTL", defaultTTL,
+				"oldTTL", options.TTL,
+			)
+		}
+		options.TTL = defaultTTL
+	}
+	client := &Client{
+		options: options,
+	}
+	err := client.renewIfExpired()
+	return client, err
+}
+
+func (c *Client) isAlive() bool {
+	return time.Since(c.clientCreation) < c.options.TTL
+}
+
+// renewIfExpired is unsafe for concurrency and must ge guarded by mutex.
+func (c *Client) renewIfExpired() error {
+	const me = "dogstatsdclient.renewIfExpired"
+	if c.isAlive() {
+		return nil
+	}
+	if c.options.Debug {
+		slog.Info(me,
+			"renewing", "client has expired, renewing",
+			"ttl", c.options.TTL,
+		)
+	}
+	// client has expired
+	client, err := NewUnsafe(c.options)
+	if err != nil {
+		return err
+	}
+	if c.client != nil {
+		c.client.Close()
+	}
+	c.client = client
+	c.clientCreation = time.Now()
+	return nil
+}
+
+// Close the client connection.
+func (c *Client) Close() error {
+	return c.client.Close()
+}
+
+// Count tracks how many times something happened per second.
+func (c *Client) Count(name string, value int64, tags []string, rate float64) error {
+	const me = "dogstatsdclient.Count"
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	if err := c.renewIfExpired(); err != nil {
+		return err
+	}
+	c.debug(me, name, value, tags, rate)
+	return c.client.Count(name, value, tags, rate)
+}
+
+// Gauge measures the value of a metric at a particular time.
+func (c *Client) Gauge(name string, value float64, tags []string, rate float64) error {
+	const me = "dogstatsdclient.Gauge"
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	if err := c.renewIfExpired(); err != nil {
+		return err
+	}
+	c.debug(me, name, value, tags, rate)
+	return c.client.Gauge(name, value, tags, rate)
+}
+
+func (c *Client) debug(caller string, name string, value any, tags []string, rate float64) {
+	if c.options.Debug {
+		slog.Info(caller,
+			"name", name,
+			"value", value,
+			"tags", tags,
+			"rate", rate,
+		)
+	}
+}
+
+// NewUnsafe creates UNSAFE Dogstatsd client. See New for a safe version.
+//
+// Dogstatds is unsafe for DNS changes.
+//
+// See: https://github.com/DataDog/datadog-go/pull/280
+func NewUnsafe(options Options) (*statsd.Client, error) {
+
+	const me = "dogstatsdclient.NewUnsafe"
 
 	if options.Host == "" {
 		options.Host = envString("DD_AGENT_HOST", "localhost")
@@ -109,4 +221,18 @@ func envString(name string, defaultValue string) string {
 	slog.Info(fmt.Sprintf("%s=[%s] using %s=%s default=%s",
 		name, str, name, defaultValue, defaultValue))
 	return defaultValue
+}
+
+// DogstatsdClient is simplified version of statsd.ClientInterface.
+// DogstatsdClient is implemented by *dogstatsd.Client, created by New.
+// DogstatsdClient is implemented by *statsd.Client, created by NewUnsafe.
+type DogstatsdClient interface {
+	// Gauge measures the value of a metric at a particular time.
+	Gauge(name string, value float64, tags []string, rate float64) error
+
+	// Count tracks how many times something happened per second.
+	Count(name string, value int64, tags []string, rate float64) error
+
+	// Close the client connection.
+	Close() error
 }

@@ -16,14 +16,21 @@ import (
 func main() {
 
 	var mock bool
+	var unsafe bool
 	var sampleRate float64
 	var namespace string
 	var tags string
+	var debug bool
+	var ttl time.Duration
 
+	flag.BoolVar(&debug, "debug", true, "enable debug")
 	flag.BoolVar(&mock, "mock", false, "enable mock")
+	flag.BoolVar(&unsafe, "unsafe", false, "create client UNSAFE for DNS changes")
 	flag.Float64Var(&sampleRate, "sampleRate", 1, "sample rate")
 	flag.StringVar(&namespace, "namespace", "namespace1", "namespace")
 	flag.StringVar(&tags, "tags", "k1:v1 k2:v2", "space-delimited tags")
+	flag.DurationVar(&ttl, "ttl", 10*time.Second, "lifetime for safe client")
+
 	flag.Parse()
 
 	slog.Info("flag",
@@ -31,26 +38,35 @@ func main() {
 		"sampleRate", sampleRate,
 		"namespace", namespace,
 		"tags", tags,
+		"unsafe", unsafe,
+		"debug", debug,
+		"ttl", ttl,
 	)
 
 	//
 	// metrics exporter
 	//
 
-	var client dogstatsdClient
+	var client dogstatsdclient.DogstatsdClient
 
 	if mock {
 		client = &statsdMock{}
 	} else {
-		c, errClient := dogstatsdclient.New(dogstatsdclient.Options{
+		options := dogstatsdclient.Options{
 			Namespace: namespace,
-			Debug:     true,
-		})
+			Debug:     debug,
+			TTL:       ttl,
+		}
+		var errClient error
+		if unsafe {
+			client, errClient = dogstatsdclient.NewUnsafe(options)
+		} else {
+			client, errClient = dogstatsdclient.New(options)
+		}
 		if errClient != nil {
 			slog.Error(errClient.Error())
 			os.Exit(1)
 		}
-		client = c
 	}
 
 	//
@@ -67,22 +83,9 @@ func main() {
 	}
 }
 
-func send(client dogstatsdClient, metric string, value int64, tags []string, sampleRate float64) {
+func send(client dogstatsdclient.DogstatsdClient, metric string, value int64, tags []string, sampleRate float64) {
 	slog.Info(fmt.Sprintf("sending COUNT name=%s value=%d", metric, value))
 	client.Count(metric, value, tags, sampleRate)
-}
-
-// dogstatsdClient is implemented by *statsd.Client.
-// Simplified version of statsd.ClientInterface.
-type dogstatsdClient interface {
-	// Gauge measures the value of a metric at a particular time.
-	Gauge(name string, value float64, tags []string, rate float64) error
-
-	// Count tracks how many times something happened per second.
-	Count(name string, value int64, tags []string, rate float64) error
-
-	// Close the client connection.
-	Close() error
 }
 
 type statsdMock struct {
