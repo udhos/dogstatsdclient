@@ -134,6 +134,18 @@ func (c *Client) Gauge(name string, value float64, tags []string, rate float64) 
 	return c.client.Gauge(name, value, tags, rate)
 }
 
+// TimeInMilliseconds sends timing information in milliseconds.
+func (c *Client) TimeInMilliseconds(name string, value float64, tags []string, rate float64) error {
+	const me = "dogstatsdclient.TimeInMilliseconds"
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	if err := c.renewIfExpired(); err != nil {
+		return err
+	}
+	c.debug(me, name, value, tags, rate)
+	return c.client.TimeInMilliseconds(name, value, tags, rate)
+}
+
 func (c *Client) debug(caller string, name string, value any, tags []string, rate float64) {
 	if c.options.Debug {
 		slog.Info(caller,
@@ -232,6 +244,9 @@ type DogstatsdClient interface {
 
 	// Count tracks how many times something happened per second.
 	Count(name string, value int64, tags []string, rate float64) error
+
+	// TimeInMilliseconds sends timing information in milliseconds.
+	TimeInMilliseconds(name string, value float64, tags []string, rate float64) error
 
 	// Close the client connection.
 	Close() error

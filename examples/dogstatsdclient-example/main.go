@@ -115,6 +115,18 @@ func (s *statsdMock) Count(name string, value int64, tags []string, rate float64
 	return nil
 }
 
+// TimeInMilliseconds tracks how many times something happened per second.
+func (s *statsdMock) TimeInMilliseconds(name string, value float64, tags []string, rate float64) error {
+	slog.Info(
+		"statsdMock.TimeInMilliseconds",
+		"name", name,
+		"value", value,
+		"tags", tags,
+		"rate", rate,
+	)
+	return nil
+}
+
 // Close the client connection.
 func (s *statsdMock) Close() error {
 	return nil
