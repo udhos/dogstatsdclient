@@ -59,7 +59,7 @@ func main() {
 		}
 		var errClient error
 		if unsafe {
-			client, errClient = dogstatsdclient.NewUnsafe(options)
+			client, errClient = dogstatsdclient.NewUnsafe(options, debug)
 		} else {
 			client, errClient = dogstatsdclient.New(options)
 		}

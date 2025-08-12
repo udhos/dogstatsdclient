@@ -49,10 +49,11 @@ type Options struct {
 // Client holds Dogstatsd client.
 // Client implements the interface DogstatsdClient.
 type Client struct {
-	options        Options
-	client         *statsd.Client
-	clientCreation time.Time
-	lock           sync.Mutex
+	options          Options
+	client           *statsd.Client
+	clientCreation   time.Time
+	lock             sync.Mutex
+	clientIsNonFirst bool
 }
 
 const defaultTTL = time.Minute
@@ -93,7 +94,9 @@ func (c *Client) renewIfExpired() error {
 		)
 	}
 	// client has expired
-	client, err := NewUnsafe(c.options)
+	debugEnvVar := !c.clientIsNonFirst // debug is enabled only for the first client creation
+	c.clientIsNonFirst = true
+	client, err := NewUnsafe(c.options, debugEnvVar)
 	if err != nil {
 		return err
 	}
@@ -162,24 +165,24 @@ func (c *Client) debug(caller string, name string, value any, tags []string, rat
 // Dogstatds is unsafe for DNS changes.
 //
 // See: https://github.com/DataDog/datadog-go/pull/280
-func NewUnsafe(options Options) (*statsd.Client, error) {
+func NewUnsafe(options Options, debugEnvVar bool) (*statsd.Client, error) {
 
 	const me = "dogstatsdclient.NewUnsafe"
 
 	if options.Host == "" {
-		options.Host = envString("DD_AGENT_HOST", "localhost")
+		options.Host = envString("DD_AGENT_HOST", "localhost", debugEnvVar)
 	}
 
 	if options.Port == "" {
-		options.Port = envString("DD_AGENT_PORT", "8125")
+		options.Port = envString("DD_AGENT_PORT", "8125", debugEnvVar)
 	}
 
 	if options.Service == "" {
-		options.Service = envString("DD_SERVICE", "service-unknown")
+		options.Service = envString("DD_SERVICE", "service-unknown", debugEnvVar)
 	}
 
 	if len(options.Tags) == 0 {
-		options.Tags = strings.Fields(envString("DD_TAGS", ""))
+		options.Tags = strings.Fields(envString("DD_TAGS", "", debugEnvVar))
 	}
 
 	if !options.DisableTagHostnameKey {
@@ -223,15 +226,19 @@ func NewUnsafe(options Options) (*statsd.Client, error) {
 // envString extracts string from env var.
 // It returns the provided defaultValue if the env var is empty.
 // The string returned is also recorded in logs.
-func envString(name string, defaultValue string) string {
+func envString(name string, defaultValue string, debug bool) string {
 	str := os.Getenv(name)
 	if str != "" {
-		slog.Info(fmt.Sprintf("%s=[%s] using %s=%s default=%s",
-			name, str, name, str, defaultValue))
+		if debug {
+			slog.Info(fmt.Sprintf("%s=[%s] using %s=%s default=%s",
+				name, str, name, str, defaultValue))
+		}
 		return str
 	}
-	slog.Info(fmt.Sprintf("%s=[%s] using %s=%s default=%s",
-		name, str, name, defaultValue, defaultValue))
+	if debug {
+		slog.Info(fmt.Sprintf("%s=[%s] using %s=%s default=%s",
+			name, str, name, defaultValue, defaultValue))
+	}
 	return defaultValue
 }
 
