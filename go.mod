@@ -1,10 +1,10 @@
 module github.com/udhos/dogstatsdclient
 
-go 1.23.12 // minimum
+go 1.24.6 // minimum
 
-toolchain go1.24.6 // preferred
+toolchain go1.25.0 // preferred
 
-require github.com/DataDog/datadog-go/v5 v5.6.0
+require github.com/DataDog/datadog-go/v5 v5.7.1
 
 require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
