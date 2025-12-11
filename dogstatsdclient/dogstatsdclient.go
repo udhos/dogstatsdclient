@@ -149,6 +149,18 @@ func (c *Client) TimeInMilliseconds(name string, value float64, tags []string, r
 	return c.client.TimeInMilliseconds(name, value, tags, rate)
 }
 
+// Distribution tracks the statistical distribution of a set of values across your infrastructure.
+func (c *Client) Distribution(name string, value float64, tags []string, rate float64) error {
+	const me = "dogstatsdclient.Distribution"
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	if err := c.renewIfExpired(); err != nil {
+		return err
+	}
+	c.debug(me, name, value, tags, rate)
+	return c.client.Distribution(name, value, tags, rate)
+}
+
 func (c *Client) debug(caller string, name string, value any, tags []string, rate float64) {
 	if c.options.Debug {
 		slog.Info(caller,
